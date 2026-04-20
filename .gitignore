@@ -1,0 +1,20 @@
+# Bağımlılıklar
+node_modules/
+.next/
+build/
+dist/
+
+# STM32 ve Gömülü Sistem Çıktıları
+Debug/
+Release/
+*.bin
+*.elf
+*.hex
+
+# Python / RPi
+__pycache__/
+.venv/
+
+# Sistem ve Çevre Değişkenleri
+.env*
+.DS_Store
