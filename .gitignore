@@ -5,12 +5,16 @@ build/
 dist/
 
 # STM32 ve Gömülü Sistem Çıktıları
-Debug/
-Release/
-*.bin
-*.elf
-*.hex
-
+**/Debug/
+**/Release/
+**/*.bin
+**/*.elf
+**/*.hex
+**/*.map
+**/*.lst
+**/*.o
+**/*.d
+.mxproject
 # Python / RPi
 __pycache__/
 .venv/
