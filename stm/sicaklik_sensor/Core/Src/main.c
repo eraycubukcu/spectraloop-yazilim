@@ -2,249 +2,373 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
+  * @brief          : DS18B20 Telemetry System - 3 Sensors + Loop Hz + Uptime
   ******************************************************************************
   */
 /* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : DS18B20 Temperature Sensor - STM32 to Raspberry Pi
-  ******************************************************************************
-  */
-/* USER CODE END Header */
-
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stdio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdio.h>
-#include <string.h>
+
 /* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim2;
-UART_HandleTypeDef huart1;
+
+UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+// Sensör Kimlikleri (Sabit)
 uint8_t S1_ID[8] = {0x28, 0x86, 0x84, 0x37, 0x00, 0x00, 0x00, 0x5C};
 uint8_t S2_ID[8] = {0x28, 0xCC, 0x48, 0x38, 0x00, 0x00, 0x00, 0x7F};
 uint8_t S3_ID[8] = {0x28, 0xE7, 0xB4, 0x36, 0x00, 0x00, 0x00, 0xA3};
 
-float T1, T2, T3;
-uint8_t presence = 0;
+// Sıcaklık ve Telemetri Değişkenleri
+float T1 = 0, T2 = 0, T3 = 0;
+float Loop_Hz = 0;
+uint32_t last_tick = 0;
+uint32_t current_uptime = 0;
+
+char msg_buffer[150];
 /* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 void delay_us (uint16_t us);
 uint8_t DS18B20_Start (void);
 void DS18B20_Write (uint8_t data);
 uint8_t DS18B20_Read (void);
+void DS18B20_Config9Bit(void);
+float DS18B20_Read_By_ID(uint8_t *ID);
 /* USER CODE END PFP */
-/* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_TIM2_Init(void);
-static void MX_USART1_UART_Init(void);
 
+/* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void delay_us (uint16_t us) {
+    __HAL_TIM_SET_COUNTER(&htim2, 0);
+    while (__HAL_TIM_GET_COUNTER(&htim2) < us);
+}
+
 void DS18B20_Config9Bit(void) {
     if (DS18B20_Start()) {
-        DS18B20_Write(0xCC); // Tüm sensörlere söyle
-        DS18B20_Write(0x4E); // Yazma komutu
-        DS18B20_Write(0x00); // TH (önemsiz)
-        DS18B20_Write(0x00); // TL (önemsiz)
-        DS18B20_Write(0x1F); // 0x1F = 9-bit çözünürlük
+        DS18B20_Write(0xCC); // Skip ROM
+        DS18B20_Write(0x4E); // Write Scratchpad
+        DS18B20_Write(0x00); // TH
+        DS18B20_Write(0x00); // TL
+        DS18B20_Write(0x1F); // 9-bit resolution
     }
-}
-void delay_us (uint16_t us) {
-	__HAL_TIM_SET_COUNTER(&htim2, 0);
-	while (__HAL_TIM_GET_COUNTER(&htim2) < us);
 }
 
 uint8_t DS18B20_Start (void) {
-	uint8_t Response = 0;
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
-	delay_us(480);
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
-	delay_us(80);
-	if (!(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0))) Response = 1;
-	else Response = 0;
-	delay_us(400);
-	return Response;
+    uint8_t Response = 0;
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
+    delay_us(480);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
+    delay_us(80);
+    if (!(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0))) Response = 1;
+    else Response = 0;
+    delay_us(400);
+    return Response;
 }
 
 void DS18B20_Write (uint8_t data) {
-	for (int i=0; i<8; i++) {
-		if ((data & (1<<i)) != 0) {
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
-			delay_us(1);
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
-			delay_us(60);
-		} else {
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
-			delay_us(60);
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
-		}
-	}
+    for (int i=0; i<8; i++) {
+        if ((data & (1<<i)) != 0) {
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
+            delay_us(1);
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
+            delay_us(60);
+        } else {
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
+            delay_us(60);
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
+        }
+    }
 }
 
 uint8_t DS18B20_Read (void) {
-	uint8_t value = 0;
-	for (int i=0; i<8; i++) {
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
-		delay_us(2);
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
-		delay_us(10);
-		if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0)) value |= (1<<i);
-		delay_us(50);
-	}
-	return value;
+    uint8_t value = 0;
+    for (int i=0; i<8; i++) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
+        delay_us(2);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
+        delay_us(10);
+        if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0)) value |= (1<<i);
+        delay_us(50);
+    }
+    return value;
 }
 
-// Belirli bir ID'ye sahip sensörden veri çekme
-float DS18B20_Get_Temp(uint8_t *ID) {
-    uint8_t LSB, MSB;
-    DS18B20_Start();
-    DS18B20_Write(0x55); // Match ROM
-    for (int i=0; i<8; i++) DS18B20_Write(ID[i]);
-    DS18B20_Write(0xBE); // Read Scratchpad
-
-    LSB = DS18B20_Read();
-    MSB = DS18B20_Read();
-    return (float)((int16_t)(MSB << 8) | LSB) / 16.0;
-
+float DS18B20_Read_By_ID(uint8_t *ID) {
+    uint8_t b1, b2;
+    if (DS18B20_Start()) {
+        DS18B20_Write(0x55); // Match ROM
+        for (int i=0; i<8; i++) DS18B20_Write(ID[i]);
+        DS18B20_Write(0xBE); // Read Scratchpad
+        b1 = DS18B20_Read();
+        b2 = DS18B20_Read();
+        return (float)((int16_t)(b2 << 8) | b1) / 16.0;
+    }
+    return -99.0;
 }
 /* USER CODE END 0 */
 
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
-	/* 1. Standart Donanım Başlatma */
-	  HAL_Init();
-	  SystemClock_Config();
-	  MX_GPIO_Init();
-	  MX_TIM2_Init();
-	  MX_USART1_UART_Init();
 
-	  /* 2. Kullanıcı Başlatma Alanı */
-	  /* USER CODE BEGIN 2 */
-	  HAL_TIM_Base_Start(&htim2); // Timer'ı başlat
+  /* USER CODE BEGIN 1 */
 
-	  DS18B20_Config9Bit();       // SENSÖRLERİ HIZ MODUNA AL (Kritik!)
+  /* USER CODE END 1 */
 
-	  HAL_UART_Transmit(&huart1, (uint8_t*)"Sistem 9-Bit Modda Basliyor...\r\n", 32, 100);
+  /* MCU Configuration--------------------------------------------------------*/
 
-	  char msg[100];
-	  /* USER CODE END 2 */
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
 
-	  /* 3. Sonsuz Döngü - Maksimum Okuma Hızı */
-	  while (1)
-	  {
-	      // A. Tüm sensörlere aynı anda "Ölçümü Başlat" emri ver
-	      DS18B20_Start();
-	      DS18B20_Write(0xCC); // Skip ROM
-	      DS18B20_Write(0x44); // Convert T
+  /* USER CODE BEGIN Init */
 
-	      // B. 9-bit modunda 100ms-150ms beklemek yeterlidir
-	      HAL_Delay(100);
+  /* USER CODE END Init */
 
-	      // C. Verileri ID'ler ile sırayla çek
-	      T1 = DS18B20_Get_Temp(S1_ID);
-	      T2 = DS18B20_Get_Temp(S2_ID);
-	      T3 = DS18B20_Get_Temp(S3_ID);
+  /* Configure the system clock */
+  SystemClock_Config();
 
-	      // D. Raspberry Pi formatında paketle ve gönder
-	      sprintf(msg, "S1:%.2f|S2:%.2f|S3:%.2f\n", T1, T2, T3);
-	      HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), 100);
+  /* USER CODE BEGIN SysInit */
 
-	      // E. Döngü sonu bekleme (İstersen silebilirsin ama 100ms bırakmak sistemi rahatlatır)
-	      HAL_Delay(100);
-	  }
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_TIM2_Init();
+  MX_USART2_UART_Init();
+  /* USER CODE BEGIN 2 */
+  HAL_TIM_Base_Start(&htim2);
+  DS18B20_Config9Bit(); // Sensörleri hızlandır
+
+  HAL_UART_Transmit(&huart1, (uint8_t*)"Telemetri Basliyor...\r\n", 23, 100);
+  last_tick = HAL_GetTick();
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    /* USER CODE END WHILE */
+	  // --- 1. FREKANS (Hz) VE UPTIME HESAPLAMA ---
+	        uint32_t current_time = HAL_GetTick();
+	        uint32_t delta = current_time - last_tick;
+
+	        if(delta > 0) {
+	            Loop_Hz = 1000.0f / delta; // Döngü kaç Hz ile dönüyor?
+	        }
+	        last_tick = current_time;
+	        current_uptime = current_time / 1000; // Saniye cinsinden çalışma süresi
+
+	        // --- 2. SENSÖRLERE ÖLÇÜM EMRİ VER (SKIP ROM) ---
+	        DS18B20_Start();
+	        DS18B20_Write(0xCC); // Tüm sensörlere seslen
+	        DS18B20_Write(0x44); // Sıcaklığı ölçmeye başlayın (Convert T)
+
+	        // 9-bit modunda 100ms beklemek yeterlidir (Hızlı okuma için)
+	        HAL_Delay(100);
+
+	        // --- 3. VERİLERİ KİMLİKLERİNE (ID) GÖRE TEK TEK ÇEK ---
+	        T1 = DS18B20_Read_By_ID(S1_ID);
+	        T2 = DS18B20_Read_By_ID(S2_ID);
+	        T3 = DS18B20_Read_By_ID(S3_ID);
+
+	        // --- 4. RASPBERRY PI İÇİN PAKETLE VE GÖNDER (USART2!) ---
+	        char msg[128];
+	        // Format: S1:24.50|S2:25.10|S3:23.85|HZ:9.50|UP:123
+	        int len = sprintf(msg, "S1:%.2f|S2:%.2f|S3:%.2f|HZ:%.2f|UP:%lu\n",
+	                          T1, T2, T3, Loop_Hz, (unsigned long)current_uptime);
+
+	        // USB üzerinden göndermek için huart2 kullanıyoruz
+	        HAL_UART_Transmit(&huart2, (uint8_t*)msg, len, 100);
+
+	        // --- 5. SİSTEMİ BİRAZ RAHATLAT (OPSİYONEL) ---
+	        // Arayüzün saniyede 10 paket (10Hz) alması yeterlidir.
+	        HAL_Delay(10);
+    /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
-
+}
 
 /**
-  * @brief System Clock Configuration (16 MHz HSI)
+  * @brief System Clock Configuration
+  * @retval None
   */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
+  /** Configure the main internal regulator output voltage
+  */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
 
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
-  HAL_RCC_OscConfig(&RCC_OscInitStruct);
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0);
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
-/* Çevresel Birim Başlatma Fonksiyonları */
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_TIM2_Init(void)
 {
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 15; // 16MHz -> 1MHz
+  htim2.Init.Prescaler = 15;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 65535;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  HAL_TIM_Base_Init(&htim2);
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig);
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
 }
 
-static void MX_USART1_UART_Init(void)
+/**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
 {
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  HAL_UART_Init(&huart1);
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
 }
 
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
+/* USER CODE BEGIN MX_GPIO_Init_1 */
+/* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+
+  /*Configure GPIO pin : PA0 */
   GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD; // Open Drain
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+/* USER CODE BEGIN MX_GPIO_Init_2 */
+/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-// Gerekirse ek fonksiyonlar buraya
+
 /* USER CODE END 4 */
 
 /**
