@@ -28,18 +28,19 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef struct {
-    uint8_t header;
-    uint8_t slave_id;
-    uint8_t data_high;
-    uint8_t data_low;
-    uint8_t checksum;
+    uint8_t  header;       // 0xAA
+    uint8_t  slave_id;     // slave adresi
+    int16_t  temp1;        // sensör 1 (×10)
+    int16_t  temp2;        // sensör 2 (×10)
+    int16_t  temp3;        // sensör 3 (×10)
+    uint8_t  checksum;     // XOR
 } SlavePacket_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SLAVE_ADDR    0x20        // slave'in 7-bit adresi
-#define PACKET_SIZE   5
+#define SLAVE_ADDR    0x20        // slave 7-bit adresi (OwnAddress1=32)
+#define PACKET_SIZE   9           // 9 byte paket
 #define I2C_TIMEOUT   100         // ms
 /* USER CODE END PD */
 
@@ -55,7 +56,7 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 uint8_t rx_buffer[PACKET_SIZE];
-char    uart_buf[64];
+char    uart_buf[128];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -64,28 +65,50 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-uint8_t VerifyChecksum(uint8_t *buf);
+uint8_t VerifyChecksum(uint8_t *buf, uint8_t len);
 void    PrintData(uint8_t *buf);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/* Checksum doğrula */
-// Checksum doğrula
-uint8_t VerifyChecksum(uint8_t *buf)
+// Checksum doğrula (son byte hariç tüm byteların XOR'u)
+uint8_t VerifyChecksum(uint8_t *buf, uint8_t len)
 {
-    uint8_t calc = buf[0] ^ buf[1] ^ buf[2] ^ buf[3];
-    return (calc == buf[4]) ? 1 : 0;
+    uint8_t calc = 0;
+    for (uint8_t i = 0; i < len - 1; i++)
+    {
+        calc ^= buf[i];
+    }
+    return (calc == buf[len - 1]) ? 1 : 0;
 }
 
 // Veriyi USART2 üzerinden PC'ye gönder
 void PrintData(uint8_t *buf)
 {
-    uint16_t value = ((uint16_t)buf[2] << 8) | buf[3];
+    // int16 olarak al, /10 yaparak float'a çevir
+    int16_t raw1 = (int16_t)((buf[2] << 8) | buf[3]);
+    int16_t raw2 = (int16_t)((buf[4] << 8) | buf[5]);
+    int16_t raw3 = (int16_t)((buf[6] << 8) | buf[7]);
+
+    // tam ve ondalık kısımları ayır
+    int t1_int = raw1 / 10;
+    int t1_dec = raw1 % 10;
+    if (t1_dec < 0) t1_dec = -t1_dec;
+
+    int t2_int = raw2 / 10;
+    int t2_dec = raw2 % 10;
+    if (t2_dec < 0) t2_dec = -t2_dec;
+
+    int t3_int = raw3 / 10;
+    int t3_dec = raw3 % 10;
+    if (t3_dec < 0) t3_dec = -t3_dec;
 
     int len = snprintf(uart_buf, sizeof(uart_buf),
-                       "SLAVE:0x%02X | DATA:%5d | HEX:0x%04X\r\n",
-                       buf[1], value, value);
+        "SLAVE:0x%02X | T1:%d.%d C | T2:%d.%d C | T3:%d.%d C\r\n",
+        buf[1],
+        t1_int, t1_dec,
+        t2_int, t2_dec,
+        t3_int, t3_dec);
 
     HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, 100);
 }
@@ -124,7 +147,7 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   snprintf(uart_buf, sizeof(uart_buf), "Master hazir...\r\n");
-  HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, strlen(uart_buf), 100);
+    HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, strlen(uart_buf), 100);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -135,44 +158,45 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	  // Slave'den PACKET_SIZE kadar byte iste
-	      HAL_StatusTypeDef status = HAL_I2C_Master_Receive(
-	                                      &hi2c1,
-	                                      SLAVE_ADDR,
-	                                      rx_buffer,
-	                                      PACKET_SIZE,
-	                                      I2C_TIMEOUT);
+	  // Slave'den 9 byte iste
+	     HAL_StatusTypeDef status = HAL_I2C_Master_Receive(
+	                                     &hi2c1,
+	                                     SLAVE_ADDR,
+	                                     rx_buffer,
+	                                     PACKET_SIZE,
+	                                     I2C_TIMEOUT);
 
-	      if (status == HAL_OK)
-	      {
-	          // Header kontrolü
-	          if (rx_buffer[0] == 0xAA)
-	          {
-	              // Checksum kontrolü
-	              if (VerifyChecksum(rx_buffer))
-	              {
-	                  PrintData(rx_buffer);
-	              }
-	              else
-	              {
-	                  HAL_UART_Transmit(&huart2,
-	                      (uint8_t*)"CHECKSUM HATASI\r\n", 17, 100);
-	              }
-	          }
-	          else
-	          {
-	              HAL_UART_Transmit(&huart2,
-	                  (uint8_t*)"HEADER HATASI\r\n", 15, 100);
-	          }
-	      }
-	      else
-	      {
-	          HAL_UART_Transmit(&huart2,
-	              (uint8_t*)"I2C HATA\r\n", 10, 100);
-	      }
+	     if (status == HAL_OK)
+	     {
+	         // Header kontrolü
+	         if (rx_buffer[0] == 0xAA)
+	         {
+	             // Checksum kontrolü
+	             if (VerifyChecksum(rx_buffer, PACKET_SIZE))
+	             {
+	                 PrintData(rx_buffer);
+	             }
+	             else
+	             {
+	                 HAL_UART_Transmit(&huart2,
+	                     (uint8_t*)"CHECKSUM HATASI\r\n", 17, 100);
+	             }
+	         }
+	         else
+	         {
+	             HAL_UART_Transmit(&huart2,
+	                 (uint8_t*)"HEADER HATASI\r\n", 15, 100);
+	         }
+	     }
+	     else
+	     {
+	         HAL_UART_Transmit(&huart2,
+	             (uint8_t*)"I2C HATA\r\n", 10, 100);
+	     }
 
-	      HAL_Delay(500);
+	     HAL_Delay(1000);
    }
+  // 1 saniyede bir oku
   /* USER CODE END 3 */
 }
 
@@ -308,6 +332,7 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+// I2C hata callback
 // I2C hata callback
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
 {
