@@ -1,4 +1,4 @@
-##SLAVE1 ISI 
+##SLAVE1 ISI## 
 STM'in usb üste gelecek şekilde tutunca sağ taraftında erkek olan ikililerin sol tarafından 2. ve 3. sıra.
 PB8 PB9 slave ve master ikisini de birbirine bağla 
 bağladığın kolları 4.7k ohm dirençle 3.3V bağla
