@@ -7,3 +7,4 @@ Slave ve Masterın GND'leri birbine bağlı olmak zorunda. 3.3leri de birbirine 
 Isıların sinyal ayaklarını aynı sıraya tak ondan da 4.7 ohm direnci 3.3'e bağla aynı sıradan da PA1'e tak.
 ısı sensörlerin gndlerini falan tak unutma mal mısın.
 
+Master PB8 SDA , PB9 SCL
