@@ -42,6 +42,7 @@ typedef struct {
 #define SLAVE_ADDR    0x20        // slave 7-bit adresi (OwnAddress1=32)
 #define PACKET_SIZE   9           // 9 byte paket
 #define I2C_TIMEOUT   100         // ms
+#define BNO055_ADDR   (0x28 << 1)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -57,6 +58,21 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 uint8_t rx_buffer[PACKET_SIZE];
 char    uart_buf[128];
+
+// --- BNO055 LIVE EXPRESSION (CANLI İZLEME) DEĞİŞKENLERİ ---
+float live_bno_yaw = 0.0f;
+float live_bno_roll = 0.0f;
+float live_bno_pitch = 0.0f;
+float live_bno_linacc_x = 0.0f;
+float live_bno_linacc_y = 0.0f;
+float live_bno_linacc_z = 0.0f;
+uint8_t live_bno_calib_stat = 0;
+uint8_t live_bno_id = 0;
+
+// --- EKLENEN KISIM: ISI LIVE EXPRESSION DEĞİŞKENLERİ ---
+float live_temp1 = 0.0f;
+float live_temp2 = 0.0f;
+float live_temp3 = 0.0f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -67,6 +83,8 @@ static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 uint8_t VerifyChecksum(uint8_t *buf, uint8_t len);
 void    PrintData(uint8_t *buf);
+void BNO055_Init(void);
+void BNO055_ReadAll_Live(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -90,6 +108,11 @@ void PrintData(uint8_t *buf)
     int16_t raw2 = (int16_t)((buf[4] << 8) | buf[5]);
     int16_t raw3 = (int16_t)((buf[6] << 8) | buf[7]);
 
+        // Live Expression Değişkenlerine Atama
+        live_temp1 = raw1 / 10.0f;
+        live_temp2 = raw2 / 10.0f;
+        live_temp3 = raw3 / 10.0f;
+
     // tam ve ondalık kısımları ayır
     int t1_int = raw1 / 10;
     int t1_dec = raw1 % 10;
@@ -111,6 +134,36 @@ void PrintData(uint8_t *buf)
         t3_int, t3_dec);
 
     HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, 100);
+}
+void BNO055_Init(void) {
+    // Sensör ID kontrolü (hi2c1 üzerinden)
+    HAL_I2C_Mem_Read(&hi2c1, BNO055_ADDR, 0x00, 1, &live_bno_id, 1, 100);
+
+    if(live_bno_id == 0xA0) {
+        // Sensörü NDOF (9-Eksen Füzyon) moduna al
+        uint8_t op_mode = 0x0C;
+        HAL_I2C_Mem_Write(&hi2c1, BNO055_ADDR, 0x3D, 1, &op_mode, 1, 100);
+        HAL_Delay(50); // Sensörün mod değiştirmesi için süre
+    }
+}
+
+void BNO055_ReadAll_Live(void) {
+    uint8_t data[46];
+    // Tüm verileri tek seferde oku (0x08'den başlayarak)
+    if (HAL_I2C_Mem_Read(&hi2c1, BNO055_ADDR, 0x08, 1, data, 46, 100) == HAL_OK) {
+        // 1. Euler Açıları (16 LSB = 1 Derece)
+        live_bno_yaw   = (int16_t)((data[19]<<8) | data[18]) / 16.0f;
+        live_bno_roll  = (int16_t)((data[21]<<8) | data[20]) / 16.0f;
+        live_bno_pitch = (int16_t)((data[23]<<8) | data[22]) / 16.0f;
+
+        // 2. Linear Acceleration / İvme (100 LSB = 1 m/s2)
+        live_bno_linacc_x = (int16_t)((data[33]<<8) | data[32]) / 100.0f;
+        live_bno_linacc_y = (int16_t)((data[35]<<8) | data[34]) / 100.0f;
+        live_bno_linacc_z = (int16_t)((data[37]<<8) | data[36]) / 100.0f;
+
+        // 3. Kalibrasyon Durumu
+        live_bno_calib_stat = data[45];
+    }
 }
 /* USER CODE END 0 */
 
@@ -146,8 +199,10 @@ int main(void)
   MX_I2C1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  BNO055_Init();
   snprintf(uart_buf, sizeof(uart_buf), "Master hazir...\r\n");
-    HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, strlen(uart_buf), 100);
+   HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, strlen(uart_buf), 100);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -158,44 +213,44 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	  // Slave'den 9 byte iste
-	     HAL_StatusTypeDef status = HAL_I2C_Master_Receive(
-	                                     &hi2c1,
-	                                     SLAVE_ADDR,
-	                                     rx_buffer,
-	                                     PACKET_SIZE,
-	                                     I2C_TIMEOUT);
+	  HAL_StatusTypeDef status = HAL_I2C_Master_Receive(
+	                                       &hi2c1, // DİKKAT: Slave artık I2C2'de!
+	                                       SLAVE_ADDR,
+	                                       rx_buffer,
+	                                       PACKET_SIZE,
+	                                       I2C_TIMEOUT);
 
-	     if (status == HAL_OK)
-	     {
-	         // Header kontrolü
-	         if (rx_buffer[0] == 0xAA)
-	         {
-	             // Checksum kontrolü
-	             if (VerifyChecksum(rx_buffer, PACKET_SIZE))
-	             {
-	                 PrintData(rx_buffer);
-	             }
-	             else
-	             {
-	                 HAL_UART_Transmit(&huart2,
-	                     (uint8_t*)"CHECKSUM HATASI\r\n", 17, 100);
-	             }
-	         }
-	         else
-	         {
-	             HAL_UART_Transmit(&huart2,
-	                 (uint8_t*)"HEADER HATASI\r\n", 15, 100);
-	         }
-	     }
-	     else
-	     {
-	         HAL_UART_Transmit(&huart2,
-	             (uint8_t*)"I2C HATA\r\n", 10, 100);
-	     }
+	        if (status == HAL_OK)
+	        {
+	            if (rx_buffer[0] == 0xAA)
+	            {
+	                if (VerifyChecksum(rx_buffer, PACKET_SIZE))
+	                {
+	                    PrintData(rx_buffer); // Orijinal fonksiyonun Putty'ye yazar
+	                }
+	                else
+	                {
+	                    HAL_UART_Transmit(&huart2, (uint8_t*)"CHECKSUM HATASI\r\n", 17, 100);
+	                }
+	            }
+	            else
+	            {
+	                HAL_UART_Transmit(&huart2, (uint8_t*)"HEADER HATASI\r\n", 15, 100);
+	            }
+	        }
+	        else
+	        {
+	            HAL_UART_Transmit(&huart2, (uint8_t*)"I2C HATA\r\n", 10, 100);
+	        }
 
-	     HAL_Delay(1000);
-   }
+	        // --- 2. BNO055 OKUMASI (LIVE EXPRESSION) ---
+	        HAL_Delay(10); // Hattı BNO okumasından önce boşa çıkar
+
+	        	        // --- 2. BNO055 OKUMASI (LIVE EXPRESSION) ---
+	        	        BNO055_ReadAll_Live();
+
+	        HAL_Delay(1000); // 1 saniyede bir oku
+	     }
   // 1 saniyede bir oku
   /* USER CODE END 3 */
 }
@@ -262,7 +317,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 400000;
+  hi2c1.Init.ClockSpeed = 100000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
