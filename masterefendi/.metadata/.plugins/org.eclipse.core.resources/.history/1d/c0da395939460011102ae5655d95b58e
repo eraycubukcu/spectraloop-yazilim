@@ -1,0 +1,450 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <string.h>
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+typedef struct {
+    uint8_t  header;       // 0xAA
+    uint8_t  slave_id;     // slave adresi
+    int16_t  temp1;        // sensör 1 (×10)
+    int16_t  temp2;        // sensör 2 (×10)
+    int16_t  temp3;        // sensör 3 (×10)
+    uint8_t  checksum;     // XOR
+} SlavePacket_t;
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+#define SLAVE_ADDR    0x20        // slave 7-bit adresi (OwnAddress1=32)
+#define PACKET_SIZE   9           // 9 byte paket
+#define I2C_TIMEOUT   100         // ms
+#define BNO055_ADDR   (0x28 << 1)
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
+UART_HandleTypeDef huart2;
+
+/* USER CODE BEGIN PV */
+uint8_t rx_buffer[PACKET_SIZE];
+char    uart_buf[128];
+
+// --- BNO055 LIVE EXPRESSION (CANLI İZLEME) DEĞİŞKENLERİ ---
+float live_bno_yaw = 0.0f;
+float live_bno_roll = 0.0f;
+float live_bno_pitch = 0.0f;
+float live_bno_linacc_x = 0.0f;
+float live_bno_linacc_y = 0.0f;
+float live_bno_linacc_z = 0.0f;
+uint8_t live_bno_calib_stat = 0;
+uint8_t live_bno_id = 0;
+
+// --- EKLENEN KISIM: ISI LIVE EXPRESSION DEĞİŞKENLERİ ---
+float live_temp1 = 0.0f;
+float live_temp2 = 0.0f;
+float live_temp3 = 0.0f;
+
+volatile uint32_t sensor_counter = 0; // Omron reflektör sayacı
+// ... diğer mevcut değişkenlerin (live_temp1, live_bno_yaw vb.) ...
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_I2C1_Init(void);
+static void MX_USART2_UART_Init(void);
+/* USER CODE BEGIN PFP */
+uint8_t VerifyChecksum(uint8_t *buf, uint8_t len);
+void    PrintData(uint8_t *buf);
+void BNO055_Init(void);
+void BNO055_ReadAll_Live(void);
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+// Checksum doğrula (son byte hariç tüm byteların XOR'u)
+uint8_t VerifyChecksum(uint8_t *buf, uint8_t len)
+{
+    uint8_t calc = 0;
+    for (uint8_t i = 0; i < len - 1; i++)
+    {
+        calc ^= buf[i];
+    }
+    return (calc == buf[len - 1]) ? 1 : 0;
+}
+
+// Veriyi USART2 üzerinden PC'ye gönder
+void PrintData(uint8_t *buf)
+{
+    // int16 olarak al, /10 yaparak float'a çevir
+    int16_t raw1 = (int16_t)((buf[2] << 8) | buf[3]);
+    int16_t raw2 = (int16_t)((buf[4] << 8) | buf[5]);
+    int16_t raw3 = (int16_t)((buf[6] << 8) | buf[7]);
+
+        // Live Expression Değişkenlerine Atama
+        live_temp1 = raw1 / 10.0f;
+        live_temp2 = raw2 / 10.0f;
+        live_temp3 = raw3 / 10.0f;
+
+    // tam ve ondalık kısımları ayır
+    int t1_int = raw1 / 10;
+    int t1_dec = raw1 % 10;
+    if (t1_dec < 0) t1_dec = -t1_dec;
+
+    int t2_int = raw2 / 10;
+    int t2_dec = raw2 % 10;
+    if (t2_dec < 0) t2_dec = -t2_dec;
+
+    int t3_int = raw3 / 10;
+    int t3_dec = raw3 % 10;
+    if (t3_dec < 0) t3_dec = -t3_dec;
+
+    int len = snprintf(uart_buf, sizeof(uart_buf),
+        "SLAVE:0x%02X | T1:%d.%d C | T2:%d.%d C | T3:%d.%d C\r\n",
+        buf[1],
+        t1_int, t1_dec,
+        t2_int, t2_dec,
+        t3_int, t3_dec);
+
+    HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, 100);
+}
+void BNO055_Init(void) {
+    // Sensör ID kontrolü (hi2c1 üzerinden)
+    HAL_I2C_Mem_Read(&hi2c1, BNO055_ADDR, 0x00, 1, &live_bno_id, 1, 100);
+
+    if(live_bno_id == 0xA0) {
+        // Sensörü NDOF (9-Eksen Füzyon) moduna al
+        uint8_t op_mode = 0x0C;
+        HAL_I2C_Mem_Write(&hi2c1, BNO055_ADDR, 0x3D, 1, &op_mode, 1, 100);
+        HAL_Delay(50); // Sensörün mod değiştirmesi için süre
+    }
+}
+
+void BNO055_ReadAll_Live(void) {
+    uint8_t data[46];
+    // Tüm verileri tek seferde oku (0x08'den başlayarak)
+    if (HAL_I2C_Mem_Read(&hi2c1, BNO055_ADDR, 0x08, 1, data, 46, 100) == HAL_OK) {
+        // 1. Euler Açıları (16 LSB = 1 Derece)
+        live_bno_yaw   = (int16_t)((data[19]<<8) | data[18]) / 16.0f;
+        live_bno_roll  = (int16_t)((data[21]<<8) | data[20]) / 16.0f;
+        live_bno_pitch = (int16_t)((data[23]<<8) | data[22]) / 16.0f;
+
+        // 2. Linear Acceleration / İvme (100 LSB = 1 m/s2)
+        live_bno_linacc_x = (int16_t)((data[33]<<8) | data[32]) / 100.0f;
+        live_bno_linacc_y = (int16_t)((data[35]<<8) | data[34]) / 100.0f;
+        live_bno_linacc_z = (int16_t)((data[37]<<8) | data[36]) / 100.0f;
+
+        // 3. Kalibrasyon Durumu
+        live_bno_calib_stat = data[45];
+    }
+}
+/* USER CODE END 0 */
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_I2C1_Init();
+  MX_USART2_UART_Init();
+  /* USER CODE BEGIN 2 */
+  BNO055_Init();
+  snprintf(uart_buf, sizeof(uart_buf), "Master hazir...\r\n");
+   HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, strlen(uart_buf), 100);
+
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+     uint32_t last_bno_time = 0;
+     uint32_t last_temp_time = 0;
+
+     while (1)
+     {
+         uint32_t current_time = HAL_GetTick(); // İşlemcinin o anki milisaniyesi
+
+         // --- 1. BNO055 OKUMASI: Her 20 ms'de bir (Saniyede 50 kere) ---
+         if (current_time - last_bno_time >= 20)
+         {
+             last_bno_time = current_time;
+             BNO055_ReadAll_Live();
+         }
+
+         // --- 2. ISI SLAVE OKUMASI: Her 1000 ms'de bir (Saniyede 1 kere) ---
+         if (current_time - last_temp_time >= 1000)
+         {
+             last_temp_time = current_time;
+
+             HAL_StatusTypeDef status = HAL_I2C_Master_Receive(&hi2c1, SLAVE_ADDR, rx_buffer, PACKET_SIZE, I2C_TIMEOUT);
+
+             if (status == HAL_OK) {
+                 if (rx_buffer[0] == 0xAA) {
+                     if (VerifyChecksum(rx_buffer, PACKET_SIZE)) {
+                         PrintData(rx_buffer);
+                     } else {
+                         HAL_UART_Transmit(&huart2, (uint8_t*)"CHECKSUM HATASI\r\n", 17, 100);
+                     }
+                 } else {
+                     HAL_UART_Transmit(&huart2, (uint8_t*)"HEADER HATASI\r\n", 15, 100);
+                 }
+             } else {
+                 // Hata durumunda çok fazla Putty mesajı basıp sistemi yormamak için kısa bir uyarı
+                 HAL_UART_Transmit(&huart2, (uint8_t*)"I2C HATA\r\n", 10, 100);
+             }
+         }
+     }
+  /* USER CODE END 3 */
+}
+
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
+
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 84;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+/* USER CODE BEGIN MX_GPIO_Init_1 */
+/* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
+/* USER CODE BEGIN MX_GPIO_Init_2 */
+/* USER CODE END MX_GPIO_Init_2 */
+}
+
+/* USER CODE BEGIN 4 */
+// I2C hata callback
+// I2C hata callback
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
+{
+    if (hi2c->Instance == I2C1)
+    {
+        HAL_UART_Transmit(&huart2,
+            (uint8_t*)"I2C CALLBACK HATA\r\n", 19, 100);
+    }
+}
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if(GPIO_Pin == GPIO_PIN_0) // PA0 pini (Omron)
+    {
+        sensor_counter++;
+    }
+}
+/* USER CODE END 4 */
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+  __disable_irq();
+  while (1)
+  {
+  }
+  /* USER CODE END Error_Handler_Debug */
+}
+
+#ifdef  USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */

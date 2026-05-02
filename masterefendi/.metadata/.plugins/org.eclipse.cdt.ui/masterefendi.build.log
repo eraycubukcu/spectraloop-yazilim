@@ -1,0 +1,10 @@
+18:33:23 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-size  masterefendi.elf 
+   text	   data	    bss	    dec	    hex	filename
+  24956	     92	   2244	  27292	   6a9c	masterefendi.elf
+Finished building: default.size.stdout
+ 
+
+18:33:23 Build Finished. 0 errors, 0 warnings. (took 187ms)
+

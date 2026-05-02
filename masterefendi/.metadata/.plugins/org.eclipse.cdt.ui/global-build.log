@@ -1,0 +1,97 @@
+18:13:48 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32F401xE -c -I../Core/Inc -I../Drivers/STM32F4xx_HAL_Driver/Inc -I../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+arm-none-eabi-gcc -o "masterefendi.elf" @"objects.list"   -mcpu=cortex-m4 -T"C:\Users\pc\STM32CubeIDE\workspace_1.16.1\spectraloop-yazilim-main\masterefendi\STM32F401RETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="masterefendi.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: masterefendi.elf
+ 
+arm-none-eabi-size  masterefendi.elf 
+arm-none-eabi-objdump -h -S masterefendi.elf  > "masterefendi.list"
+   text	   data	    bss	    dec	    hex	filename
+  25012	     92	   2244	  27348	   6ad4	masterefendi.elf
+Finished building: default.size.stdout
+ 
+Finished building: masterefendi.list
+ 
+18:13:59 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-size  masterefendi.elf 
+   text	   data	    bss	    dec	    hex	filename
+  25012	     92	   2244	  27348	   6ad4	masterefendi.elf
+Finished building: default.size.stdout
+ 
+18:15:49 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32F401xE -c -I../Core/Inc -I../Drivers/STM32F4xx_HAL_Driver/Inc -I../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+../Core/Src/main.c: In function 'main':
+../Core/Src/main.c:220:68: error: 'len' undeclared (first use in this function)
+  220 |                     HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, 100);
+      |                                                                    ^~~
+../Core/Src/main.c:220:68: note: each undeclared identifier is reported only once for each function it appears in
+make: *** [Core/Src/subdir.mk:34: Core/Src/main.o] Error 1
+"make -j16 all" terminated with exit code 2. Build might be incomplete.
+18:15:57 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32F401xE -c -I../Core/Inc -I../Drivers/STM32F4xx_HAL_Driver/Inc -I../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+../Core/Src/main.c: In function 'main':
+../Core/Src/main.c:220:68: error: 'len' undeclared (first use in this function)
+  220 |                     HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, len, 100);
+      |                                                                    ^~~
+../Core/Src/main.c:220:68: note: each undeclared identifier is reported only once for each function it appears in
+make: *** [Core/Src/subdir.mk:34: Core/Src/main.o] Error 1
+"make -j16 all" terminated with exit code 2. Build might be incomplete.
+18:16:09 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32F401xE -c -I../Core/Inc -I../Drivers/STM32F4xx_HAL_Driver/Inc -I../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+arm-none-eabi-gcc -o "masterefendi.elf" @"objects.list"   -mcpu=cortex-m4 -T"C:\Users\pc\STM32CubeIDE\workspace_1.16.1\spectraloop-yazilim-main\masterefendi\STM32F401RETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="masterefendi.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: masterefendi.elf
+ 
+arm-none-eabi-size  masterefendi.elf 
+arm-none-eabi-objdump -h -S masterefendi.elf  > "masterefendi.list"
+   text	   data	    bss	    dec	    hex	filename
+  24956	     92	   2244	  27292	   6a9c	masterefendi.elf
+Finished building: default.size.stdout
+ 
+Finished building: masterefendi.list
+ 
+18:25:34 **** Incremental Build of configuration Debug for project slave1 ****
+make -j16 all 
+arm-none-eabi-size  slave1.elf 
+   text	   data	    bss	    dec	    hex	filename
+  16832	     36	   1748	  18616	   48b8	slave1.elf
+Finished building: default.size.stdout
+ 
+18:26:28 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-size  masterefendi.elf 
+   text	   data	    bss	    dec	    hex	filename
+  24956	     92	   2244	  27292	   6a9c	masterefendi.elf
+Finished building: default.size.stdout
+ 
+18:26:57 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-size  masterefendi.elf 
+   text	   data	    bss	    dec	    hex	filename
+  24956	     92	   2244	  27292	   6a9c	masterefendi.elf
+Finished building: default.size.stdout
+ 
+18:27:58 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-size  masterefendi.elf 
+   text	   data	    bss	    dec	    hex	filename
+  24956	     92	   2244	  27292	   6a9c	masterefendi.elf
+Finished building: default.size.stdout
+ 
+18:29:38 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-size  masterefendi.elf 
+   text	   data	    bss	    dec	    hex	filename
+  24956	     92	   2244	  27292	   6a9c	masterefendi.elf
+Finished building: default.size.stdout
+ 
+18:33:23 **** Incremental Build of configuration Debug for project masterefendi ****
+make -j16 all 
+arm-none-eabi-size  masterefendi.elf 
+   text	   data	    bss	    dec	    hex	filename
+  24956	     92	   2244	  27292	   6a9c	masterefendi.elf
+Finished building: default.size.stdout
+ 
